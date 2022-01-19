@@ -276,7 +276,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.rect = False if image_weights else rect
 
         # Define labels
-        self.label_files = [x.replace('images', 'labels').replace(os.path.splitext(x)[-1], '.txt')
+        self.label_files = [x.replace('JPEGImages', 'labels').replace(os.path.splitext(x)[-1], '.txt')
                             for x in self.img_files]
 
         # Rectangular Training  https://github.com/ultralytics/yolov3/issues/232
@@ -509,8 +509,8 @@ def load_image(self, index):
         assert img is not None, 'Image Not Found ' + img_path
         r = self.img_size / max(img.shape)  # size ratio
         if self.augment and r < 1:  # if training (NOT testing), downsize to inference shape
-            h, w, _ = img.shape
-            img = cv2.resize(img, (int(w * r), int(h * r)), interpolation=cv2.INTER_LINEAR)  # _LINEAR fastest
+            # h, w, _ = img.shape
+            img = cv2.resize(img, (416, 416), interpolation=cv2.INTER_LINEAR)  # _LINEAR fastest
 
     # Augment colorspace
     if self.augment:
@@ -588,8 +588,8 @@ def load_mosaic(self, index):
                 labels[:, 2] = h * (x[:, 2] - x[:, 4] / 2) + padh
                 labels[:, 3] = w * (x[:, 1] + x[:, 3] / 2) + padw
                 labels[:, 4] = h * (x[:, 2] + x[:, 4] / 2) + padh
-            # else:
-                # labels = np.zeros((0,5), dtype=np.float32)
+            else:
+                labels = np.zeros((0,5), dtype=np.float32)
 
             labels4.append(labels)
     labels4 = np.concatenate(labels4, 0)
@@ -791,3 +791,4 @@ def create_folder(path='./new_folder'):
     if os.path.exists(path):
         shutil.rmtree(path)  # delete output folder
     os.makedirs(path)  # make new output folder
+
