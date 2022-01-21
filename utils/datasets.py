@@ -422,10 +422,10 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
             # Letterbox
             h, w, _ = img.shape
-            if self.rect:
-                img, ratio, padw, padh = letterbox(img, self.batch_shapes[self.batch[index]], mode='rect')
-            else:
-                img, ratio, padw, padh = letterbox(img, self.img_size, mode='square')
+            # if self.rect:
+            #     img, ratio, padw, padh = letterbox(img, self.batch_shapes[self.batch[index]], mode='rect')
+            # else:
+            #     img, ratio, padw, padh = letterbox(img, self.img_size, mode='square')
 
             # Load labels
             labels = []
@@ -438,10 +438,10 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 if x.size > 0:
                     # Normalized xywh to pixel xyxy format
                     labels = x.copy()
-                    labels[:, 1] = ratio[0] * w * (x[:, 1] - x[:, 3] / 2) + padw
-                    labels[:, 2] = ratio[1] * h * (x[:, 2] - x[:, 4] / 2) + padh
-                    labels[:, 3] = ratio[0] * w * (x[:, 1] + x[:, 3] / 2) + padw
-                    labels[:, 4] = ratio[1] * h * (x[:, 2] + x[:, 4] / 2) + padh
+                    labels[:, 1] = w * (x[:, 1] - x[:, 3] / 2)
+                    labels[:, 2] = h * (x[:, 2] - x[:, 4] / 2)
+                    labels[:, 3] = w * (x[:, 1] + x[:, 3] / 2)
+                    labels[:, 4] = h * (x[:, 2] + x[:, 4] / 2)
 
         if self.augment:
             # Augment imagespace
@@ -508,9 +508,9 @@ def load_image(self, index):
         img = cv2.imread(img_path)  # BGR
         assert img is not None, 'Image Not Found ' + img_path
         r = self.img_size / max(img.shape)  # size ratio
-        if self.augment and r < 1:  # if training (NOT testing), downsize to inference shape
+        # if self.augment and r < 1:  # if training (NOT testing), downsize to inference shape
             # h, w, _ = img.shape
-            img = cv2.resize(img, (416, 416), interpolation=cv2.INTER_LINEAR)  # _LINEAR fastest
+        img = cv2.resize(img, (416, 416), interpolation=cv2.INTER_LINEAR)  # _LINEAR fastest
 
     # Augment colorspace
     if self.augment:
