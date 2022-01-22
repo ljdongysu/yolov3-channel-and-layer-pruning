@@ -276,7 +276,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.rect = False if image_weights else rect
 
         # Define labels
-        self.label_files = [x.replace('images', 'labels').replace(os.path.splitext(x)[-1], '.txt')
+        self.label_files = [x.replace('JPEGImages', 'labels').replace(os.path.splitext(x)[-1], '.txt')
                             for x in self.img_files]
 
         # Rectangular Training  https://github.com/ultralytics/yolov3/issues/232
@@ -551,6 +551,7 @@ def load_mosaic(self, index):
     img4 = np.zeros((s * 2, s * 2, 3), dtype=np.uint8) + 128  # base image with 4 tiles
     indices = [index] + [random.randint(0, len(self.labels) - 1) for _ in range(3)]  # 3 additional image indices
     for i, index in enumerate(indices):
+        labels_singal = []
         # Load image
         img = load_image(self, index)
         h, w, _ = img.shape
@@ -588,10 +589,22 @@ def load_mosaic(self, index):
                 labels[:, 2] = h * (x[:, 2] - x[:, 4] / 2) + padh
                 labels[:, 3] = w * (x[:, 1] + x[:, 3] / 2) + padw
                 labels[:, 4] = h * (x[:, 2] + x[:, 4] / 2) + padh
-            # else:
-                # labels = np.zeros((0,5), dtype=np.float32)
+            else:
+                labels = np.zeros((0,5), dtype=np.float32)
 
-            labels4.append(labels)
+            for label in labels.tolist():
+                label_cut = np.array(label) - s // 2
+                label_cut[0] += s // 2
+                label_cut = np.clip(label_cut, 0, 416)
+                area_cut = abs(label_cut[4] - label_cut[2]) * abs(label_cut[3] - label_cut[1])
+                area_ori = abs(label[4] - label[2]) * abs(label[3] - label[1])
+                if area_cut / area_ori > 0.3:
+                    labels_singal.append(label)
+
+            if len(labels_singal) == 0:
+                labels4.append(np.zeros((0, 5), dtype=np.float32))
+            else:
+                labels4.append(labels_singal)
     labels4 = np.concatenate(labels4, 0)
 
     # hyp = self.hyp
