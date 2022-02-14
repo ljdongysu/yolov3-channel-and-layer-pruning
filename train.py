@@ -380,7 +380,7 @@ def train():
             # if opt.sr and opt.prune==1 and epoch > opt.epochs * 0.5:
             #     idx2mask = get_mask2(model, prune_idx, 0.85)
 
-            BNOptimizer.updateBN(sr_flag, model.module_list, opt.s, prune_idx, epoch, idx2mask, opt)
+            BNOptimizer.updateBN(sr_flag, model.module_list, opt.s, opt.s1, prune_idx, epoch, idx2mask, opt)
 
             # Accumulate gradient for x batches before optimizing
             if ni % accumulate == 0:
@@ -520,6 +520,7 @@ if __name__ == '__main__':
     parser.add_argument('--sparsity-regularization', '-sr', dest='sr', action='store_true',
                         help='train with channel sparsity regularization')
     parser.add_argument('--s', type=float, default=0.001, help='scale sparse rate')
+    parser.add_argument('--s1', type=float, default=0.00001, help='scale sparse rate in second half epoches')
     parser.add_argument('--prune', type=int, default=1, help='0:nomal prune 1:other prune ')
     
     

@@ -142,9 +142,9 @@ def write_cfg(cfg_file, module_defs):
 class BNOptimizer():
 
     @staticmethod
-    def updateBN(sr_flag, module_list, s, prune_idx, epoch, idx2mask=None, opt=None):
+    def updateBN(sr_flag, module_list, s, s1, prune_idx, epoch, idx2mask=None, opt=None):
         if sr_flag:
-            # s = s if epoch <= opt.epochs * 0.5 else s * 0.01
+            # s = s if epoch <= opt.epochs * 0.5 else s1
             for idx in prune_idx:
                 # Squential(Conv, BN, Lrelu)
                 bn_module = module_list[idx][1]
