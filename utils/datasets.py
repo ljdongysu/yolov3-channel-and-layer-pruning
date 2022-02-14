@@ -454,8 +454,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                                         shear=hyp['shear'] * g)
 
             # Apply cutouts
-            # if random.random() < 0.9:
-            #     labels = cutout(img, labels)
+            if random.random() < 0.4:
+                labels = cutout(img, labels)
 
         nL = len(labels)  # number of labels
         if nL:
@@ -499,23 +499,17 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             l[:, 0] = i  # add target image index for build_targets()
         return torch.stack(img, 0), torch.cat(label, 0), path, hw
 
-def gauss_noise(image, mean=0, var=0.001):
-    '''
-        添加高斯噪声
-        mean : 均值
-        var : 方差
-    '''
-    image = np.array(image/255, dtype=float)
-    noise = np.random.normal(mean, var ** 0.5, image.shape)
-    out = image + noise
-    if out.min() < 0:
-        low_clip = -1.
-    else:
-        low_clip = 0.
-    out = np.clip(out, low_clip, 1.0)
-    out = np.uint8(out*255)
-    cv2.imshow("gauss", out)
-    return out
+
+def AddGaussNoise(img, sigma, mean=0):
+    # 大概率abs(noise) < 3 * sigma
+    noise = np.random.normal(mean, sigma, img.shape)
+    img = img.astype(np.float)
+    img = img + noise
+    img = np.clip(img, 0, 255)
+    img = img.astype(np.uint8)
+    # cv2.imshow("noise",img)
+    # cv2.waitKey(0)
+    return img
 
 def load_image(self, index):
     blur_size=[3,5,7]
@@ -533,10 +527,11 @@ def load_image(self, index):
     # Augment colorspace
     if self.augment:
         augment_hsv(img, hgain=self.hyp['hsv_h'], sgain=self.hyp['hsv_s'], vgain=self.hyp['hsv_v'])
-    if random.randint(0,1):
-        img=cv2.blur(img,blur_size[random.randint(0,2)])
-    if random.randint(0,1):
-        img=gauss_noise(img,0,3)
+    if random.random() < 0.35:
+           index = random.randint(0,2)
+           img=cv2.blur(img,(blur_size[index],blur_size[index]))
+    if random.random() < 0.35:
+         img=AddGaussNoise(img,20,3)
     return img
 
 
@@ -787,7 +782,7 @@ def cutout(image, labels):
 
         # apply random color mask
         mask_color = [random.randint(0, 255) for _ in range(3)]
-        image[ymin:ymax, xmin:xmax] = mask_color
+        image[ymin:ymax, xmin:xmax] = [0,0,0]
 
         # return unobscured labels
         if len(labels) and s > 0.03:
