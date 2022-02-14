@@ -499,8 +499,26 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             l[:, 0] = i  # add target image index for build_targets()
         return torch.stack(img, 0), torch.cat(label, 0), path, hw
 
+def gauss_noise(image, mean=0, var=0.001):
+    '''
+        添加高斯噪声
+        mean : 均值
+        var : 方差
+    '''
+    image = np.array(image/255, dtype=float)
+    noise = np.random.normal(mean, var ** 0.5, image.shape)
+    out = image + noise
+    if out.min() < 0:
+        low_clip = -1.
+    else:
+        low_clip = 0.
+    out = np.clip(out, low_clip, 1.0)
+    out = np.uint8(out*255)
+    cv2.imshow("gauss", out)
+    return out
 
 def load_image(self, index):
+    blur_size=[3,5,7]
     # loads 1 image from dataset
     img = self.imgs[index]
     if img is None:
@@ -515,7 +533,10 @@ def load_image(self, index):
     # Augment colorspace
     if self.augment:
         augment_hsv(img, hgain=self.hyp['hsv_h'], sgain=self.hyp['hsv_s'], vgain=self.hyp['hsv_v'])
-
+    if random.randint(0,1):
+        img=cv2.blur(img,blur_size[random.randint(0,2)])
+    if random.randint(0,1):
+        img=gauss_noise(img,0,3)
     return img
 
 
@@ -753,7 +774,7 @@ def cutout(image, labels):
         return inter_area / box2_area
 
     # create random masks
-    scales = [0.5] * 1  # + [0.25] * 4 + [0.125] * 16 + [0.0625] * 64 + [0.03125] * 256  # image size fraction
+    scales = [0.25] * 1  # + [0.25] * 4 + [0.125] * 16 + [0.0625] * 64 + [0.03125] * 256  # image size fraction
     for s in scales:
         mask_h = random.randint(1, int(h * s))
         mask_w = random.randint(1, int(w * s))
