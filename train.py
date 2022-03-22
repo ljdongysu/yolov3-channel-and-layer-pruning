@@ -37,7 +37,7 @@ hyp = {'giou': 1.582,  # giou loss gain
        'hsv_h': 0.10,  # image HSV-Hue augmentation (fraction)
        'hsv_s': 0.5703,  # image HSV-Saturation augmentation (fraction)
        'hsv_v': 0.3174,  # image HSV-Value augmentation (fraction)
-       'degrees': 1.113,  # image rotation (+/- deg)
+       'degrees': 30,  # image rotation (+/- deg)
        'translate': 0.06797,  # image translation (+/- fraction)
        'scale': 0.1059,  # image scale (+/- gain)
        'shear': 0.5768}  # image shear (+/- deg)
@@ -377,8 +377,8 @@ def train():
                 loss.backward()
                 
             idx2mask = None
-            # if opt.sr and opt.prune==1 and epoch > opt.epochs * 0.5:
-            #     idx2mask = get_mask2(model, prune_idx, 0.85)
+            if opt.sr and opt.prune==1 and epoch > opt.epochs * 0.5:
+                idx2mask = get_mask2(model, prune_idx, 0.6)
 
             BNOptimizer.updateBN(sr_flag, model.module_list, opt.s, opt.s1, prune_idx, epoch, idx2mask, opt)
 
@@ -414,7 +414,7 @@ def train():
                                               batch_size=batch_size,
                                               img_size=opt.img_size,
                                               model=model,
-                                              conf_thres=0.001 if final_epoch and epoch > 0 else 0.1,  # 0.1 for speed
+                                              conf_thres=0.1,  # 0.1 for speed
                                               save_json=final_epoch and epoch > 0 and 'coco.data' in data)
 
         # Write epoch results

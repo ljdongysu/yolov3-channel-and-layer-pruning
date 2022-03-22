@@ -475,8 +475,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                     labels[:, 1] = 1 - labels[:, 1]
 
             # random up-down flip
-            ud_flip = False
-            if ud_flip and random.random() < 0.5:
+            ud_flip = True
+            if ud_flip and random.random() < 0.35:
                 img = np.flipud(img)
                 if nL:
                     labels[:, 2] = 1 - labels[:, 2]
@@ -512,7 +512,8 @@ def AddGaussNoise(img, sigma, mean=0):
     return img
 
 def load_image(self, index):
-    blur_size=[3,5,7]
+    #blur_size=[3,5]
+    #blur=True
     # loads 1 image from dataset
     img = self.imgs[index]
     if img is None:
@@ -527,11 +528,14 @@ def load_image(self, index):
     # Augment colorspace
     if self.augment:
         augment_hsv(img, hgain=self.hyp['hsv_h'], sgain=self.hyp['hsv_s'], vgain=self.hyp['hsv_v'])
-    if random.random() < 0.35:
-           index = random.randint(0,2)
-           img=cv2.blur(img,(blur_size[index],blur_size[index]))
-    if random.random() < 0.35:
-         img=AddGaussNoise(img,20,3)
+    #if random.random() < 0.4:
+    #       index = random.randint(0,1)
+    #       img=cv2.blur(img,(blur_size[index],blur_size[index]))
+           #cv2.imshow("noise",img)
+           #cv2.waitKey(0)
+    #       blur=False
+    #if random.random() < 0.35 and blur:
+    #     img=AddGaussNoise(img,random.randint(5,10),1)
     return img
 
 
@@ -622,13 +626,13 @@ def load_mosaic(self, index):
             else:
                 labels4.append(labels_singal)
     labels4 = np.concatenate(labels4, 0)
-
-    # hyp = self.hyp
-    # img4, labels4 = random_affine(img4, labels4,
-    #                               degrees=hyp['degrees'],
-    #                               translate=hyp['translate'],
-    #                               scale=hyp['scale'],
-    #                               shear=hyp['shear'])
+    if random.random()<0.35:
+       hyp = self.hyp
+       img4, labels4 = random_affine(img4, labels4,
+                                  degrees=hyp['degrees'],
+                                  translate=hyp['translate'],
+                                  scale=hyp['scale'],
+                                  shear=hyp['shear'])
 
     # Center crop
     a = s // 2

@@ -184,11 +184,11 @@ if __name__ == '__main__':
 
 
 
-    pruned_cfg_name = opt.cfg.replace('/', f'/prune_{opt.global_percent}_keep_{opt.layer_keep}_')
+    pruned_cfg_name ="prune.cfg"
     pruned_cfg_file = write_cfg(pruned_cfg_name, [model.hyperparams.copy()] + compact_module_defs)
     print(f'Config file has been saved: {pruned_cfg_file}')
 
-    compact_model_name = opt.weights.replace('/', f'/prune_{opt.global_percent}_keep_{opt.layer_keep}_')
+    compact_model_name = "prune.weights"
     if compact_model_name.endswith('.pt'):
         compact_model_name = compact_model_name.replace('.pt', '.weights')
     save_weights(compact_model, path=compact_model_name)

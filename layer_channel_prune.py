@@ -335,8 +335,8 @@ if __name__ == '__main__':
     print(AsciiTable(metric_table).table)
 
 
-    pruned_cfg_name = opt.cfg.replace('/', f'/prune_{opt.global_percent}_keep_{opt.layer_keep}_{opt.shortcuts}_shortcut_')
-    pruned_cfg_file = write_cfg(pruned_cfg_name, [model.hyperparams.copy()] + compact_module_defs)
+    pruned_cfg_name = "prune.cfg"
+    pruned_cfg_file = "prune.weights"
     print(f'Config file has been saved: {pruned_cfg_file}')
 
     compact_model_name = opt.weights.replace('/', f'/prune_{opt.global_percent}_keep_{opt.layer_keep}_{opt.shortcuts}_shortcut_')
