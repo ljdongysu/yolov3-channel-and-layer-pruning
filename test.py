@@ -47,7 +47,7 @@ def test(cfg,
     names = load_classes(data['names'])  # class names
 
     # Dataloader
-    dataset = LoadImagesAndLabels(test_path, img_size, batch_size)
+    dataset = LoadImagesAndLabels_test(test_path, img_size, batch_size)
     dataloader = DataLoader(dataset,
                             batch_size=batch_size,
                             num_workers=min([os.cpu_count(), batch_size, 16]),

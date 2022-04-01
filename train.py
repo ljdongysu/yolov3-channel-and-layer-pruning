@@ -1,5 +1,6 @@
 import argparse
 
+import torch
 import torch.distributed as dist
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
@@ -11,7 +12,6 @@ from utils.utils import *
 from utils.prune_utils import *
 
 
-mixed_precision = True
 try:  # Mixed precision training https://github.com/NVIDIA/apex
     from apex import amp
 except:
@@ -218,10 +218,6 @@ def train():
             param_group['lr'] = lr
         return lr
 
-
-
-
-
     # # Plot lr schedule
     # y = []
     # for _ in range(epochs):
@@ -245,7 +241,7 @@ def train():
                                 init_method='tcp://127.0.0.1:9999',  # distributed training init method
                                 world_size=1,  # number of nodes for distributed training
                                 rank=0)  # distributed training node rank
-        model = torch.nn.parallel.DistributedDataParallel(model)
+        model = torch.nn.parallel.DistributedDataParallel(model, broadcast_buffers=False,find_unused_parameters=True)
         model.module_list = model.module.module_list
         model.yolo_layers = model.module.yolo_layers  # move yolo layer indices to top level
 
@@ -288,6 +284,7 @@ def train():
         #print('learning rate:',optimizer.param_groups[0]['lr'])
         print(('\n' + '%10s' * 10) % ('Epoch', 'gpu_mem', 'GIoU', 'obj', 'cls', 'total', 'soft', 'rratio', 'targets', 'img_size'))
 
+
         # Freeze backbone at epoch 0, unfreeze at epoch 1 (optional)
         freeze_backbone = False
         if freeze_backbone and epoch < 2:
@@ -303,10 +300,17 @@ def train():
 
         mloss = torch.zeros(4).to(device)  # mean losses
         msoft_target = torch.zeros(1).to(device)
-        pbar = tqdm(enumerate(dataloader), total=nb)  # progress bar
+        pbar = enumerate(dataloader)  # progress bar
         sr_flag = get_sr_flag(epoch, opt.sr)
-        for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
+        for i, (imgs, targets,imgs_rgb, targets_rgb, paths, _) in pbar:  # batch -------------------------------------------------------------
             ni = i + nb * epoch  # number integrated batches (since train start)
+
+            try:
+                _,(_, _, imgs_rgb_y, targets_rgb_y, _, _)=pbar.__next__()
+            except StopIteration:
+                print("next data failed")
+                imgs_rgb_y=torch.zeros(imgs_rgb_y.shape)
+                break
 
             # 调整学习率，进行warm up和学习率衰减
             lr = adjust_learning_rate(optimizer, 0.1, epoch, ni, nb)
@@ -315,7 +319,10 @@ def train():
 
 
             imgs = imgs.to(device)
+            imgs_rgb = imgs_rgb.to(device)
+            imgs_rgb_y = imgs_rgb_y.to(device)
             targets = targets.to(device)
+            targets_rgb = targets_rgb.to(device)
 
             # Multi-Scale training
             if multi_scale:
@@ -327,11 +334,16 @@ def train():
                     imgs = F.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
 
             #Plot images with bounding boxes
-            if ni == 0:
-                fname = 'train_batch%g.jpg' % i
-                plot_images(imgs=imgs, targets=targets, paths=paths, fname=fname)
-                if tb_writer:
-                    tb_writer.add_image(fname, cv2.imread(fname)[:, :, ::-1], dataformats='HWC')
+            # if ni == 0 or ni ==100:
+            #     fname = 'train_batch%g.jpg' % i
+            #     plot_images(imgs=imgs, targets=targets, paths=paths, fname=fname)
+            #     if tb_writer:
+            #         tb_writer.add_image(fname, cv2.imread(fname)[:, :, ::-1], dataformats='HWC')
+            # if ni == 0 or ni ==100:
+            #     fname = 'train_batch_rgb%g.jpg' % i
+            #     plot_images(imgs=imgs_rgb, targets=targets_rgb, paths=paths, fname=fname)
+            #     if tb_writer:
+            #         tb_writer.add_image(fname, cv2.imread(fname)[:, :, ::-1], dataformats='HWC')
 
             # Hyperparameter burn-in
             # n_burn = nb - 1  # min(nb // 5 + 1, 1000)  # number of burn-in batches
@@ -345,10 +357,25 @@ def train():
             #         x['weight_decay'] = hyp['weight_decay'] * g
 
             # Run model
-            pred = model(imgs)
+            pred, feature= model(imgs)
+            pred_rgb, feature_rgb= model(imgs_rgb)
+            pred_rgb_y, feature_rgb_y= model(imgs_rgb_y)
+
+            triple_loss=nn.TripletMarginLoss(margin=0.3)
+            loss_triple1=triple_loss(feature[0],feature_rgb[0],feature_rgb_y[0])
+            loss_triple2=triple_loss(feature[1],feature_rgb[1],feature_rgb_y[1])
+            loss_triple3=triple_loss(feature[2],feature_rgb[2],feature_rgb_y[2])
+            loss_triple4=triple_loss(feature[3],feature_rgb[3],feature_rgb_y[3])
+            loss_triple=(loss_triple1+loss_triple2+loss_triple3+loss_triple4)/4
 
             # Compute loss
-            loss, loss_items = compute_loss(pred, targets, model)
+            loss_gray, loss_items = compute_loss(pred, targets, model)
+            loss_rgb, loss_items_rgb = compute_loss(pred_rgb, targets_rgb, model)
+
+            loss0=loss_gray
+            loss1=loss_rgb
+            loss=0.1*loss_rgb+0.9*loss_gray+0.05*loss_triple
+
             if not torch.isfinite(loss):
                 print('WARNING: non-finite loss, ending training ', loss_items)
                 return results
@@ -374,8 +401,16 @@ def train():
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
                     scaled_loss.backward()
             else:
-                loss.backward()
-                
+                # loss0.backward(retain_graph=True)
+                # loss1.backward()
+                if epoch<20:
+                    if random.random()<0.7:
+                        loss0.backward()
+                    else:
+                        loss1.backward()
+                else:
+                    loss.backward()
+
             idx2mask = None
             if opt.sr and opt.prune==1 and epoch > opt.epochs * 0.5:
                 idx2mask = get_mask2(model, prune_idx, 0.6)
@@ -392,8 +427,8 @@ def train():
             msoft_target = (msoft_target * i + soft_target) / (i + 1)
             mem = torch.cuda.memory_cached() / 1E9 if torch.cuda.is_available() else 0  # (GB)
             s = ('%10s' * 2 + '%10.3g' * 8) % (
-                '%g/%g' % (epoch, epochs - 1), '%.3gG' % mem, *mloss, msoft_target, reg_ratio, len(targets), img_size)
-            pbar.set_description(s)
+                '%g/%g' % (epoch, epochs - 1), '%.3g' % mem, *mloss, msoft_target, reg_ratio, len(targets), loss_triple.detach().item())
+            tqdm(pbar).set_description(s)
 
             # end batch ------------------------------------------------------------------------------------------------
 
@@ -450,6 +485,7 @@ def train():
 
             # Save last checkpoint
             torch.save(chkpt, last)
+
             if opt.bucket and not opt.prebias:
                 os.system('gsutil cp %s gs://%s' % (last, opt.bucket))  # upload to bucket
 
@@ -462,7 +498,7 @@ def train():
                 torch.save(chkpt, wdir + 'backup%g.pt' % epoch)
 
             # Delete checkpoint
-            del chkpt            
+            del chkpt
 
 
         # end epoch ----------------------------------------------------------------------------------------------------

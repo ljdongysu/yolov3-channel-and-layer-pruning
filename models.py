@@ -33,7 +33,7 @@ def create_modules(module_defs, img_size, arc):
             if bn:
                 modules.add_module('BatchNorm2d', nn.BatchNorm2d(filters, momentum=0.1))
             if mdef['activation'] == 'leaky':  # TODO: activation study https://github.com/ultralytics/yolov3/issues/441
-                modules.add_module('activation', nn.LeakyReLU(0.1, inplace=True))
+                modules.add_module('activation', nn.LeakyReLU(0.1))
                 # modules.add_module('activation', nn.PReLU(num_parameters=1, init=0.10))
                 # modules.add_module('activation', Swish())
             elif mdef['activation'] == 'mish':
@@ -231,6 +231,7 @@ class Darknet(nn.Module):
         img_size = x.shape[-2:]
         layer_outputs = []
         output = []
+        output1=[]
 
         for i, (mdef, module) in enumerate(zip(self.module_defs, self.module_list)):
             mtype = mdef['type']
@@ -248,6 +249,7 @@ class Darknet(nn.Module):
                     except:  # apply stride 2 for darknet reorg layer
                         layer_outputs[layers[1]] = F.interpolate(layer_outputs[layers[1]], scale_factor=[0.5, 0.5])
                         x = torch.cat([layer_outputs[i] for i in layers], 1)
+                output1.append(x)
                     # print(''), [print(layer_outputs[i].shape) for i in layers], print(x.shape)
             elif mtype == 'shortcut':
                 x = x + layer_outputs[int(mdef['from'])]
@@ -257,7 +259,7 @@ class Darknet(nn.Module):
             layer_outputs.append(x if i in self.routs else [])
 
         if self.training:
-            return output
+            return output,output1
         elif ONNX_EXPORT:
             output = torch.cat(output, 1)  # cat 3 layers 85 x (507, 2028, 8112) to 85 x 10647
             nc = self.module_list[self.yolo_layers[0]].nc  # number of classes
