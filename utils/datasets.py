@@ -30,13 +30,25 @@ for orientation in ExifTags.TAGS.keys():
 
 def reduce_mean(image, path):
     if "coco" in path:
-        return image - channel_means["coco"]
+        image[:, :, 0] = image[:, :, 0] - channel_means["coco"][0]
+        image[:, :, 1] = image[:, :, 1] - channel_means["coco"][1]
+        image[:, :, 2] = image[:, :, 2] - channel_means["coco"][2]
+        return image
     elif "gray" in path:
-        return image - channel_means["gray"]
+        image[:, :, 0] = image[:, :, 0] - channel_means["gray"][0]
+        image[:, :, 1] = image[:, :, 1] - channel_means["gray"][1]
+        image[:, :, 2] = image[:, :, 2] - channel_means["gray"][2]
+        return image
     elif "gan" in path:
-        return image - channel_means["gan"]
+        image[:, :, 0] = image[:, :, 0] - channel_means["gan"][0]
+        image[:, :, 1] = image[:, :, 1] - channel_means["gan"][1]
+        image[:, :, 2] = image[:, :, 2] - channel_means["gan"][2]
+        return image
     else:
-        return image - channel_means["default"]
+        image[:, :, 0] = image[:, :, 0] - channel_means["default"][0]
+        image[:, :, 1] = image[:, :, 1] - channel_means["default"][1]
+        image[:, :, 2] = image[:, :, 2] - channel_means["default"][2]
+        return image
 
 def exif_size(img):
     # Returns exif-corrected PIL size
