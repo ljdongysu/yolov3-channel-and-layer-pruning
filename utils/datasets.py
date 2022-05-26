@@ -48,7 +48,6 @@ def reduce_mean(image, path):
         image[:, :, 0] = image[:, :, 0] - channel_means["default"][0]
         image[:, :, 1] = image[:, :, 1] - channel_means["default"][1]
         image[:, :, 2] = image[:, :, 2] - channel_means["default"][2]
-        return image
 
 def exif_size(img):
     # Returns exif-corrected PIL size
@@ -121,7 +120,7 @@ class LoadImages:  # for inference
             self.count += 1
             img0 = cv2.imread(path)  # BGR
             assert img0 is not None, 'Image Not Found ' + path
-            img0 = reduce_mean(img0, path)
+            reduce_mean(img0, path)
             print('image %g/%g %s: ' % (self.count, self.nF, path), end='')
 
         # Padded resize
@@ -404,7 +403,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 img_path = self.img_files[i]
                 img = cv2.imread(img_path)  # BGR
                 assert img is not None, 'Image Not Found ' + img_path
-                img = reduce_mean(img, img_path)
+                reduce_mean(img, img_path)
                 r = self.img_size / max(img.shape)  # size ratio
                 if self.augment and r < 1:  # if training (NOT testing), downsize to inference shape
                     h, w, _ = img.shape
@@ -547,7 +546,7 @@ def load_image(self, index):
         img_path = self.img_files[index]
         img = cv2.imread(img_path)  # BGR
         assert img is not None, 'Image Not Found ' + img_path
-        img = reduce_mean(img, img_path)
+        reduce_mean(img, img_path)
         r = self.img_size / max(img.shape)  # size ratio
         if self.augment and r < 1:  # if training (NOT testing), downsize to inference shape
             h, w, _ = img.shape
