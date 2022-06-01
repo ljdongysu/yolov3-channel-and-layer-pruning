@@ -29,18 +29,19 @@ for orientation in ExifTags.TAGS.keys():
         break
 
 def reduce_mean(image, path):
-    channel_mean = channel_means["default"]
     if "coco" in path:
         channel_mean = channel_means["coco"]
     elif "gray" in path:
         channel_mean = channel_means["gray"]
     elif "gan" in path:
         channel_mean = channel_means["gan"]
-    # get value < 0 in image
-    image = image - channel_mean
-    # can be dealt by cv2.cvtColor
-    image = image.astype(np.float32)
-    return image
+    else:
+        channel_mean = channel_means["default"]
+    # convert np.float64 to float32
+    channel_mean = np.array(channel_mean).astype(np.float32)
+    image_mean = image.astype(np.float32) - channel_mean
+    print(image_mean.dtype)
+    return image_mean
 
 def exif_size(img):
     # Returns exif-corrected PIL size
@@ -588,7 +589,7 @@ def load_mosaic(self, index):
     labels4 = []
     s = self.img_size
     xc, yc = [int(random.uniform(s * 0.5, s * 1.5)) for _ in range(2)]  # mosaic center x, y
-    img4 = np.zeros((s * 2, s * 2, 3), dtype=np.uint8) + 128  # base image with 4 tiles
+    img4 = np.zeros((s * 2, s * 2, 3), dtype=np.float32) + 128  # base image with 4 tiles
     indices = [index] + [random.randint(0, len(self.labels) - 1) for _ in range(3)]  # 3 additional image indices
     for i, index in enumerate(indices):
         labels_singal = []
