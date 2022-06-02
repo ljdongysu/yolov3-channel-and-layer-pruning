@@ -37,10 +37,9 @@ def reduce_mean(image, path):
         channel_mean = channel_means["gan"]
     else:
         channel_mean = channel_means["default"]
-    # convert np.float64 to float32
+
     channel_mean = np.array(channel_mean).astype(np.float32)
     image_mean = image.astype(np.float32) - channel_mean
-    print(image_mean.dtype)
     return image_mean
 
 def exif_size(img):
