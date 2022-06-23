@@ -311,7 +311,7 @@ def train():
                 loss += soft_target
 
             # Scale loss by nominal batch_size of 64
-            loss *= batch_size / 64
+            loss *= batch_size / 32
 
             # Compute gradient
             if mixed_precision:
