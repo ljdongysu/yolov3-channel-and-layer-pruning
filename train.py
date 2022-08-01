@@ -83,6 +83,9 @@ def train():
     for f in glob.glob('*_batch*.jpg') + glob.glob(results_file):
         os.remove(f)
 
+    if torch.cuda.device_count() > 1:
+        dist.init_process_group(backend='nccl', world_size=2)
+
     # Initialize model
     model = Darknet(cfg, (img_size, img_size), arc=opt.arc).to(device)
     if t_cfg:
@@ -108,40 +111,41 @@ def train():
     start_epoch = 0
     best_fitness = 0.
     attempt_download(weights)
-    if weights.endswith('.pt'):  # pytorch format
-        # possible weights are 'last.pt', 'yolov3-spp.pt', 'yolov3-tiny.pt' etc.
-        if opt.bucket:
-            os.system('gsutil cp gs://%s/last.pt %s' % (opt.bucket, last))  # download from bucket
-        chkpt = torch.load(weights, map_location=device)
+    if opt.local_rank == 0:
+        if weights.endswith('.pt'):  # pytorch format
+            # possible weights are 'last.pt', 'yolov3-spp.pt', 'yolov3-tiny.pt' etc.
+            if opt.bucket:
+                os.system('gsutil cp gs://%s/last.pt %s' % (opt.bucket, last))  # download from bucket
+            chkpt = torch.load(weights, map_location=device)
 
-        # load model
-        # if opt.transfer:
-        chkpt['model'] = {k: v for k, v in chkpt['model'].items() if model.state_dict()[k].numel() == v.numel()}
-        model.load_state_dict(chkpt['model'], strict=False)
-        print('loaded weights from', weights, '\n')
-        # else:
-        #    model.load_state_dict(chkpt['model'])
+            # load model
+            # if opt.transfer:
+            chkpt['model'] = {k: v for k, v in chkpt['model'].items() if model.state_dict()[k].numel() == v.numel()}
+            model.load_state_dict(chkpt['model'], strict=False)
+            print('loaded weights from', weights, '\n')
+            # else:
+            #    model.load_state_dict(chkpt['model'])
 
-        # load optimizer
-        if chkpt['optimizer'] is not None:
-            optimizer.load_state_dict(chkpt['optimizer'])
-            best_fitness = chkpt['best_fitness']
+            # # load optimizer
+            if chkpt['optimizer'] is not None:
+                optimizer.load_state_dict(chkpt['optimizer'])
+                best_fitness = chkpt['best_fitness']
 
-        # load results
-        if chkpt.get('training_results') is not None:
-            with open(results_file, 'w') as file:
-                file.write(chkpt['training_results'])  # write results.txt
+            # load results
+            if chkpt.get('training_results') is not None:
+                with open(results_file, 'w') as file:
+                    file.write(chkpt['training_results'])  # write results.txt
 
-        start_epoch = chkpt['epoch'] + 1
-        del chkpt
+            start_epoch = chkpt['epoch'] + 1
+            del chkpt
 
-    # elif weights.endswith('.pth'):
-    #     model.load_state_dict(torch.load(weights))
+        # elif weights.endswith('.pth'):
+        #     model.load_state_dict(torch.load(weights))
 
-    elif len(weights) > 0:  # darknet format
-        # possible weights are 'yolov3.weights', 'yolov3-tiny.conv.15',  'darknet53.conv.74' etc.
-        cutoff = load_darknet_weights(model, weights)
-        print('loaded weights from', weights, '\n')
+        elif len(weights) > 0:  # darknet format
+            # possible weights are 'yolov3.weights', 'yolov3-tiny.conv.15',  'darknet53.conv.74' etc.
+            cutoff = load_darknet_weights(model, weights)
+            print('loaded weights from', weights, '\n')
 
 
     if t_cfg:
@@ -162,7 +166,7 @@ def train():
         if opt.sr:
             print('shortcut sparse training')
     elif opt.prune==0:
-        CBL_idx, _, prune_idx= parse_module_defs(model.module_defs)
+        CBL_idx, _, prune_idx = parse_module_defs(model.module_defs)
         if opt.sr:
             print('normal sparse training ')
 
@@ -241,13 +245,12 @@ def train():
             model, optimizer = amp.initialize(model, optimizer, opt_level='O1', verbosity=1)
     # Initialize distributed training
     if torch.cuda.device_count() > 1:
-        dist.init_process_group(backend='nccl',  # 'distributed backend'
-                                init_method='tcp://127.0.0.1:9999',  # distributed training init method
-                                world_size=1,  # number of nodes for distributed training
-                                rank=0)  # distributed training node rank
-        model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[opt.local_rank],output_device=opt.local_rank,
+                                                          find_unused_parameters=True)
         model.module_list = model.module.module_list
         model.yolo_layers = model.module.yolo_layers  # move yolo layer indices to top level
+    
+
 
     # Dataset
     dataset = LoadImagesAndLabels(train_path,
@@ -260,13 +263,16 @@ def train():
                                   cache_labels=True if epochs > 10 else False,
                                   cache_images=False if opt.prebias else opt.cache_images)
 
+    train_sampler = torch.utils.data.distributed.DistributedSampler(dataset)
+
     # Dataloader
     dataloader = torch.utils.data.DataLoader(dataset,
                                              batch_size=batch_size,
                                              num_workers=min([os.cpu_count(), batch_size, 16]),
-                                             shuffle=not opt.rect,  # Shuffle=True unless rectangular training is used
+                                             shuffle=False,  # Shuffle=True unless rectangular training is used
                                              pin_memory=True,
-                                             collate_fn=dataset.collate_fn)
+                                             collate_fn=dataset.collate_fn,
+                                             sampler=train_sampler)
 
     for idx in prune_idx:
         bn_weights = gather_bn_weights(model.module_list, [idx])
@@ -367,7 +373,7 @@ def train():
                 loss += soft_target
 
             # Scale loss by nominal batch_size of 64
-            loss *= batch_size / 64
+            loss *= batch_size / 32
 
             # Compute gradient
             if mixed_precision:
@@ -400,72 +406,72 @@ def train():
         # Update scheduler
         # scheduler.step()
 
-
+        if opt.local_rank == 0:
         # Process epoch results
-        final_epoch = epoch + 1 == epochs
-        if opt.prebias:
-            print_model_biases(model)
-        else:
-            # Calculate mAP (always test final epoch, skip first 10 if opt.nosave)
-            if not (opt.notest or (opt.nosave and epoch < 10)) or final_epoch:
-                with torch.no_grad():
-                    results, maps = test.test(cfg,
-                                              data,
-                                              batch_size=batch_size,
-                                              img_size=opt.img_size,
-                                              model=model,
-                                              conf_thres=0.1,  # 0.1 for speed
-                                              save_json=final_epoch and epoch > 0 and 'coco.data' in data)
+            final_epoch = epoch + 1 == epochs
+            if opt.prebias:
+                print_model_biases(model)
+            else:
+                # Calculate mAP (always test final epoch, skip first 10 if opt.nosave)
+                if not (opt.notest or (opt.nosave and epoch < 10)) or final_epoch:
+                    with torch.no_grad():
+                        results, maps = test.test(cfg,
+                                                data,
+                                                batch_size=batch_size,
+                                                img_size=opt.img_size,
+                                                model=model,
+                                                conf_thres=0.1,  # 0.1 for speed
+                                                save_json=final_epoch and epoch > 0 and 'coco.data' in data)
 
-        # Write epoch results
-        with open(results_file, 'a') as f:
-            f.write(s + '%10.3g' * 7 % results + '\n')  # P, R, mAP, F1, test_losses=(GIoU, obj, cls)
+            # Write epoch results
+            with open(results_file, 'a') as f:
+                f.write(s + '%10.3g' * 7 % results + '\n')  # P, R, mAP, F1, test_losses=(GIoU, obj, cls)
 
-        # Write Tensorboard results
-        if tb_writer:
-            x = list(mloss) + list(results) + [msoft_target]
-            titles = ['GIoU', 'Objectness', 'Classification', 'Train loss',
-                      'Precision', 'Recall', 'mAP', 'F1', 'val GIoU', 'val Objectness', 'val Classification', 'soft_loss']
-            for xi, title in zip(x, titles):
-                tb_writer.add_scalar(title, xi, epoch)
-            bn_weights = gather_bn_weights(model.module_list, prune_idx)
-            tb_writer.add_histogram('bn_weights/hist', bn_weights.numpy(), epoch, bins='doane')
+            # Write Tensorboard results
+            if tb_writer:
+                x = list(mloss) + list(results) + [msoft_target]
+                titles = ['GIoU', 'Objectness', 'Classification', 'Train loss',
+                        'Precision', 'Recall', 'mAP', 'F1', 'val GIoU', 'val Objectness', 'val Classification', 'soft_loss']
+                for xi, title in zip(x, titles):
+                    tb_writer.add_scalar(title, xi, epoch)
+                bn_weights = gather_bn_weights(model.module_list, prune_idx)
+                tb_writer.add_histogram('bn_weights/hist', bn_weights.numpy(), epoch, bins='doane')
 
-        # Update best mAP
-        fitness = results[2]  # mAP
-        if fitness > best_fitness:
-            best_fitness = fitness
+            # Update best mAP
+            fitness = results[2]  # mAP
+            if fitness > best_fitness:
+                best_fitness = fitness
 
-        # Save training results
-        save = (not opt.nosave) or (final_epoch and not opt.evolve) or opt.prebias
-        if save:
-            with open(results_file, 'r') as f:
-                # Create checkpoint
-                chkpt = {'epoch': epoch,
-                         'best_fitness': best_fitness,
-                         'training_results': f.read(),
-                         'model': model.module.state_dict() if type(
-                             model) is nn.parallel.DistributedDataParallel else model.state_dict(),
-                         'optimizer': None if final_epoch else optimizer.state_dict()}
+            # Save training results
+            save = (not opt.nosave) or (final_epoch and not opt.evolve) or opt.prebias
+            if save:
+                with open(results_file, 'r') as f:
+                    # Create checkpoint
+                    chkpt = {'epoch': epoch,
+                            'best_fitness': best_fitness,
+                            'training_results': f.read(),
+                            'model': model.module.state_dict() if type(
+                                model) is nn.parallel.DistributedDataParallel else model.state_dict(),
+                            'optimizer': None if final_epoch else optimizer.state_dict()}
 
-            # Save last checkpoint
-            torch.save(chkpt, last)
-            if opt.bucket and not opt.prebias:
-                os.system('gsutil cp %s gs://%s' % (last, opt.bucket))  # upload to bucket
+                # Save last checkpoint
+                torch.save(chkpt, last)
+                if opt.bucket and not opt.prebias:
+                    os.system('gsutil cp %s gs://%s' % (last, opt.bucket))  # upload to bucket
 
-            # Save best checkpoint
-            if best_fitness == fitness:
-                torch.save(chkpt, best)
+                # Save best checkpoint
+                if best_fitness == fitness:
+                    torch.save(chkpt, best)
 
-            # Save backup every 10 epochs (optional)
-            if epoch > 0 and epoch % 10 == 0:
-                torch.save(chkpt, wdir + 'backup%g.pt' % epoch)
+                # Save backup every 10 epochs (optional)
+                if epoch > 0 and epoch % 10 == 0:
+                    torch.save(chkpt, wdir + 'backup%g.pt' % epoch)
 
-            # Delete checkpoint
-            del chkpt            
+                # Delete checkpoint
+                del chkpt            
 
 
-        # end epoch ----------------------------------------------------------------------------------------------------
+            # end epoch ----------------------------------------------------------------------------------------------------
 
     for idx in prune_idx:
         bn_weights = gather_bn_weights(model.module_list, [idx])
@@ -522,13 +528,17 @@ if __name__ == '__main__':
     parser.add_argument('--s', type=float, default=0.001, help='scale sparse rate')
     parser.add_argument('--s1', type=float, default=0.00001, help='scale sparse rate in second half epoches')
     parser.add_argument('--prune', type=int, default=1, help='0:nomal prune 1:other prune ')
-    
+    parser.add_argument('--local_rank', default=0, type=int, help='node rank for distributed training')
+
     
     opt = parser.parse_args()
     opt.weights = last if opt.resume else opt.weights
     print(opt)
-    device = torch_utils.select_device(opt.device, apex=mixed_precision)
 
+    local_rank = opt.local_rank
+    torch.cuda.set_device(local_rank)
+    device = torch.device("cuda", local_rank)
+    
     tb_writer = None
     if not opt.evolve:  # Train normally
         # try:
